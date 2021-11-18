@@ -1,0 +1,218 @@
+---
+title: "Metropolis Hastings Algorithm Illustrated"
+author: "Prince John"
+date: "03/01/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\section{Definition of the Model}
+
+In the beginning of Chapter 14 we discussed about a non-conjugate model. Our model was
+
+\begin{align*}
+y_i|\mu &\sim N(\mu,1), \hspace{15pt}i=1,2\hdots,n\\
+\mu &\sim t(0,1,1)
+\end{align*}
+
+\noindent The posterior was found to be 
+
+\begin{align*}
+p(\mu|y_1,y_2.\hdots,y_n)&\propto \frac{1}{\sqrt{2\pi}}\exp\bigg[-\frac{1}{2}\sum_{i=1}^n(y_i-\mu)^2\bigg]\times \frac{1}{\pi(1+\mu^2)}\\&\propto \frac{\exp\bigg[n(\bar{y}\mu-\frac{\mu^2}{2})\bigg]}{1+\mu^2}
+\end{align*}
+
+\noindent Clearly, this is a non-tractable distribution and it is difficult to simulate from this likelihood, which is why we have to use the MCMC Metropolis Hastings algorithm. Let's have a look. 
+
+Note that in this work I have used the logarithm of the posterior and will be dealing with the logarithm because many at times, the values that will be generated will be too small and as a result, R will approximate it to zero and will cause problems in acceptance and rejection. Let's have a look.
+
+\noindent Remember, we had discussed earlier that Metropolis Hastings algorithm is able to simulate upto a normalizing constant.
+
+$$p(\mu)\propto g(\mu)$$
+
+\noindent What is $g(\mu)$ in this case?
+
+
+$$g(\mu)=\frac{\exp(n(\bar{y}\mu-\mu^2/2))}{1+\mu^2}$$
+
+\noindent Thus,
+
+$$\log(g(\mu))=n(\bar{y}\mu-\mu^2/2)-\log(1+\mu^2)$$
+
+\section{Writing the R Code} 
+
+There are three arguments in the $\log(g(\mu))$ function, they are $n,\bar{y},\mu$
+```{r}
+lg<-function(n,y_bar,mu){
+  mu2=mu^2
+  n*(y_bar*mu-mu2/2)-log(1+mu2)
+}
+```
+
+That was easy right? Now, let's first look into the steps of Metropolis Hastings Algorithm.
+
+\begin{enumerate}
+\item Select an initial value for $\theta$, $\theta_0$.
+\item For large number of iterations $i=1\hdots m$ repeat the following
+\begin{enumerate}
+\item Draw candidate $\theta^*\sim q(\theta|\theta_{i-1})$.
+\item Calculate $\alpha=\frac{g(\theta^*)/q(\theta^*|\theta_{i-1})}{g(\theta_{i-1})/q(\theta_{i-1}|\theta^*)}=\frac{g(\theta^*)q(\theta_{i-1}|\theta^*)}{g(\theta_{i-1})q(\theta^*|\theta_{i-1})}$
+\item  We set the probabilities for $\alpha$ acceptance as follows
+\begin{enumerate}
+\item If $\alpha\geq 1$ accept and set $\theta_i\leftarrow \theta^*$. 
+\item If $0<\alpha<1$, accept $\theta^*$ and set $\theta_i\leftarrow\theta^*$ with probability $\alpha$
+\item Otherwise Reject $\theta^*$ and set $\theta_i\leftarrow\theta_{i-1}$.
+\end{enumerate}
+\end{enumerate}
+\end{enumerate}
+
+\noindent SO the first step is to set an initial value of theta, which we put in the function mh parameter as mu_init. Secondly, we add the other parameters which were there in the posterior R function, namely, n and y_bar. Thirdly, we deal with the candidate sample distribution $q(\theta^*|\theta_{i-1})$. As discussed earlier, we can have a distribution that doesnt change, or we can have a Random walk with Normal distribution with the mean $\mu$ of the current iteration centered at the previous iteration value. The advantage of this is that it cancels the $q$  in the numerator and the denominator making it more convenient. Since we are using a Normal centered at the $\mu$ value of the previous iteration that we are trying to estimate, we will only specify the standard deviation value cand_sd
+
+
+```{r}
+mh=function(mu_init,n,y_bar,cand_sd,n_iter){
+  mu_out=numeric(n_iter)
+  accept=0
+  mu_now=mu_init
+  lg_now=lg(n,y_bar,mu_now)
+  for (i in 1:n_iter){
+    mu_cand=rnorm(1,mu_now,cand_sd)
+    lg_cand=lg(n,y_bar,mu_cand)
+    lalpha=lg_cand-lg_now
+    alpha=exp(lalpha)
+    
+    u=runif(1)
+    if (u<alpha){
+    #(u<alpha) gives us an event with probability alpha 
+      mu_now=mu_cand
+      accept=accept+1
+      lg_now=lg_cand
+    }
+    mu_out[i]=mu_now
+  }
+  list(mu=mu_out,accept=accept/n_iter)
+}
+```
+
+
+\subsection{Using our Model}
+Suppose we have a dataset as follows $y=(1.2,1.4,-0.5,0.3,0.9,2.3,1.0,0.1,1.3,1.9)$. Let's now find the posterior distribution.
+
+```{r}
+
+y=c(1.2,1.4,-0.5,0.3,0.9,2.3,1.0,0.1,1.3,1.9)
+y_bar=mean(y)
+n=length(y)
+hist(y,freq = FALSE, xlim=c(-1,3))
+points(y,rep(0,n))
+points(y_bar,0,pch=19,col="red")
+curve(dt(x,df=1),lty=2,add = TRUE,col="blue")
+```
+
+We can see the points on the x-axis and the mean of the data is also plotted in red shaded circle. This is our data. What does our prior distribution look like. We know that our prior distribution is $t(0,1,1)$. In the above figure, the prior distribution is plotted in blue dashed line. 
+
+\noindent It seems that our data and our prior distribution has some sort of discrepancy. For instance, the data seems to be centered around 1 (the mean), and the prior is to the left. When we plot our posterior, it is highly likely that the distribution will be a compromise of these two and will have a mean somewhere in between.
+
+\section{Posterior Sampling}
+This is it! Let's do this
+
+```{r}
+set.seed(43)
+post=mh(0,n,y_bar = y_bar,cand_sd = 3.0,n_iter=1e3)
+```
+How do the samples look like?
+```{r,warning=FALSE}
+str(post)
+library("coda") # To see the traceplots
+traceplot(as.mcmc(post$mu))
+
+```
+As you can see, our $\mu$ gets stuck at certain values for so many iterations. Now, to make sure that your code starts searching for more values, there is a trick that we generally do, and that is to change the cand_sd to a lower value, if lower value, it searches more, if higher cand_sd, it has lower precision.
+
+This is also seen when you check the acceptance percentage. It is $12.2\%$
+
+```{r}
+post=mh(30,n,y_bar = y_bar,cand_sd = 0.9,n_iter=1e3)
+traceplot(as.mcmc(post$mu))
+str(post)
+```
+
+I changed the initial value to 30 and also changed the cand_sd. Now check out the acceptance rate. It is $38.7\%$ and that is really good.
+
+\noindent Did you notice that upto almost 100 iterations, the algorithm was searching and does not have any reasonable acceptance. It is only after 100 iterations that it converges to its stationary distribution.
+
+As a result, usually we don't consider the first few samples, and we discard that.
+
+```{r}
+post$mu_keep<-post$mu[-c(1:100)]
+plot(density(post$mu_keep),xlim=c(-1,3))
+
+```
+
+\subsection{Plotting the data, prior and the posterior}
+```{r}
+plot(density(post$mu_keep),xlim=c(-1,3))
+points(y,rep(0,n))
+points(y_bar,0,pch=19,col="red")
+curve(dt(x,df=1),lty=2,add = TRUE,col="blue")
+```
+library(coda)
+summary(as.mcmc(post$mu_keep))
+
+\section{Assessing Convergence}
+
+When you see that your MCMC chain is starting to stay in a certain area, it is a clue that your MCMC chain has started to converge. Anyways there are other methods as well, and that is through \textbf{autocorrelation}.
+```{r}
+library(coda)
+autocorr.plot(as.mcmc(post0$mu))
+```
+Autocorrelation is a number between negative 1 and positive 1 which measures how linearly dependent the current value of the chain is to past values called lags. With the first lag, a value of the chain has a correlation a little higher than 0.5. And as we go further along the chain, the values become less correlated. Let's look at the values of the autocorrelation.
+
+```{r}
+autocorr.diag(as.mcmc(post0$mu))
+```
+So what sample size should we select? 
+```{r}
+str(post0$mu)
+effectiveSize(as.mcmc(post0$mu))
+```
+So this means that out of our 4000 simulations, we are taking only 838 of those values. 
+
+```{r}
+raftery.diag(as.mcmc(post0$mu))
+raftery.diag(as.mcmc(post0$mu), q=0.005, r=0.001, s=0.95)
+```
+\section{Burn in}
+
+We have also seen how the initial value of the chain can affect how quickly the chain converges. If our initial value is far from the bulk of the posterior distribution, then it may take a while for the chain to travel there. We saw this in an earlier example.
+```{r}
+set.seed(62)
+post3 = mh(n=n, y_bar, n_iter=500, mu_init=10.0, cand_sd=0.3)
+coda::traceplot(as.mcmc(post3$mu))
+```
+
+Clearly, the first 100 or so iterations do not reflect draws from the stationary distribution, so they should be discarded before we use this chain for Monte Carlo estimates. This is called the “burn-in” period. You should always discard early iterations that do not appear to be coming from the stationary distribution. Even if the chain appears to have converged early on, it is safer practice to discard an initial burn-in.
+
+```{r}
+post1 = mh(n=n, y_bar, n_iter=nsim, mu_init=15.0, cand_sd=0.4)
+post1$accpt
+post2 = mh(n=n, y_bar, n_iter=nsim, mu_init=-5.0, cand_sd=0.4)
+post2$accpt
+post3 = mh(n=n, y_bar, n_iter=nsim, mu_init=7.0, cand_sd=0.1)
+post3$accpt
+post4 = mh(n=n, y_bar, n_iter=nsim, mu_init=23.0, cand_sd=0.5)
+post4$accpt
+post5 = mh(n=n, y_bar, n_iter=nsim, mu_init=-17.0, cand_sd=0.4)
+post5$accpt
+pmc = mcmc.list(as.mcmc(post1$mu), as.mcmc(post2$mu), 
+                as.mcmc(post3$mu), as.mcmc(post4$mu), as.mcmc(post5$mu))
+str(pmc)
+coda::traceplot(pmc)
+coda::gelman.diag(pmc)
+```
+
+
+
+

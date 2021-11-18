@@ -1,0 +1,105 @@
+---
+title: "Metropolis Hastings Algorithm on Cauchy Distribution"
+author: "Prince John"
+date: "04/01/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\section{Problem}
+This is a continuition of a problem from Chapter 5. Let $X_{1:3}$ denote a random sample of size $n = 3$ from a Cauchy $C(\theta, 1)$ distribution. Here $\theta\in\mathbb{R}$ denotes the location parameter of the Cauchy distribution with density
+
+$$f(y)=\frac{1}{\pi[1+(y-\theta)^2]}$$
+
+\noindent The likelihood function is 
+
+$$L(\theta)=\prod_{i=1}^3\frac{1}{\pi[1+(y_i-\theta)^2]}=\frac{1}{\pi^3[1+(y_1-\theta)^2][1+(y_2-\theta)^2][1+(y_3-\theta)^2]}$$
+
+\subsection{Prior distribution}
+Suppose I come up with a Normal distribution with mean at $N(0,1)$ as our prior distribution. 
+
+$$p(\theta)=\frac{1}{\sqrt{2\pi}}\exp\bigg[-\frac{\theta^2}{2}\bigg]$$
+
+\section{Model}
+Thus, our model can be specified as 
+
+\begin{align*}
+y|\theta &\sim C(\theta,1)\\
+\theta  &\sim N(0,1)
+\end{align*}
+
+
+\noindent Thus we have 
+
+$$p(\theta|y)\propto p(y|\theta)p(\theta)$$
+
+\noindent $p(y|\theta)=L(\theta)=\prod_{i=1}^3\frac{1}{\pi[1+(y_i-\theta)^2]}=\frac{1}{\pi^3[1+(y_1-\theta)^2][1+(y_2-\theta)^2][1+(y_3-\theta)^2]}$
+
+\begin{align*}
+p(\theta|y)&\propto \frac{1}{\pi^3[1+(y_1-\theta)^2][1+(y_2-\theta)^2][1+(y_3-\theta)^2]} \times \frac{1}{\sqrt{2\pi}}\exp\bigg[-\frac{\theta^2}{2}\bigg]\\
+&\propto \frac{\exp\bigg[-\frac{\theta^2}{2}\bigg]}{[1+(y_1-\theta)^2][1+(y_2-\theta)^2][1+(y_3-\theta)^2]}\\
+\log(p(\theta|y))&\propto \bigg[-\frac{\theta^2}{2}\bigg]-\log([1+(y_1-\theta)^2][1+(y_2-\theta)^2][1+(y_3-\theta)^2])\\
+&\propto \bigg[-\frac{\theta^2}{2}\bigg]-\log([1+(y_1-\theta)^2]-\log[1+(y_2-\theta)^2]-\log[1+(y_3-\theta)^2])=\log(g(\theta))
+\end{align*}
+
+This is our posterior distribution. Let's sample from this distribution.
+\section{Posterior sampling}
+
+```{r}
+lg<-function(n,theta,y_bar){
+  theta2=theta^2
+  -theta2/2-log(1+(y_bar[1]-theta)^2)-log(1+(y_bar[2]-theta)^2)-log(1+(y_bar[3]-theta)^2)
+}
+
+mh<-function(theta_init,n,y_bar,cand_sd,n_iter){
+  theta_out<-numeric(n_iter)
+  accept=0
+  theta_now<-theta_init
+  lg_now<-lg(n,theta_now,y_bar)
+  
+  for (i in 1:n_iter){
+    theta_cand<-rnorm(1,mean=theta_now,sd=cand_sd)
+    lg_cand<-lg(n,theta_cand,y_bar)
+    lalpha=lg_cand-lg_now
+    alpha=exp(lalpha)
+    
+    u=runif(1)
+    if (u<alpha){
+    #(u<alpha) gives us an event with probability alpha 
+      theta_now=theta_cand
+      accept=accept+1
+      lg_now=lg_cand
+    }
+    theta_out[i]=theta_now
+  }
+  list(theta=theta_out,accept=accept/n_iter)
+}
+```
+\subsection{Using our Model}
+Suppose our data is $y=\{11,31,41\}$, then we have
+
+Let's now find the posterior distribution.
+
+```{r}
+set.seed(43)
+y_bar=c(11,31,41)
+n=length(y_bar)
+post=mh(30,n,y_bar = y_bar,cand_sd = 3.0,n_iter=1e3)
+```
+How do the samples look like?
+```{r,warning=FALSE}
+str(post)
+library("coda") # To see the traceplots
+traceplot(as.mcmc(post$theta))
+
+```
+```{r}
+post$theta_keep<-post$theta[-c(1:50)]
+plot(density(post$theta_keep),xlim=c(-1,3))
+curve(dnorm(x),lty=2,add = TRUE,col="blue")
+points(y_bar,rep(0,n))
+```
+
